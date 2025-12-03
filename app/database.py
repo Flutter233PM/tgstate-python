@@ -24,15 +24,21 @@ def init_db():
                     filename TEXT NOT NULL,
                     file_id TEXT NOT NULL UNIQUE,
                     filesize INTEGER NOT NULL,
+                    description TEXT DEFAULT '',
                     upload_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 );
             """)
+            # 兼容旧数据库：添加 description 列（如果不存在）
+            cursor.execute("PRAGMA table_info(files)")
+            columns = [col[1] for col in cursor.fetchall()]
+            if 'description' not in columns:
+                cursor.execute("ALTER TABLE files ADD COLUMN description TEXT DEFAULT ''")
             conn.commit()
             print("数据库已成功初始化。")
         finally:
             conn.close()
 
-def add_file_metadata(filename: str, file_id: str, filesize: int):
+def add_file_metadata(filename: str, file_id: str, filesize: int, description: str = ""):
     """
     向数据库中添加一个新的文件元数据记录。
     如果 file_id 已存在，则忽略。
@@ -42,8 +48,8 @@ def add_file_metadata(filename: str, file_id: str, filesize: int):
         try:
             cursor = conn.cursor()
             cursor.execute(
-                "INSERT OR IGNORE INTO files (filename, file_id, filesize) VALUES (?, ?, ?)",
-                (filename, file_id, filesize)
+                "INSERT OR IGNORE INTO files (filename, file_id, filesize, description) VALUES (?, ?, ?, ?)",
+                (filename, file_id, filesize, description)
             )
             conn.commit()
             print(f"已添加或忽略文件元数据: {filename}")
@@ -56,7 +62,7 @@ def get_all_files():
         conn = get_db_connection()
         try:
             cursor = conn.cursor()
-            cursor.execute("SELECT filename, file_id, filesize, upload_date FROM files ORDER BY upload_date DESC")
+            cursor.execute("SELECT filename, file_id, filesize, description, upload_date FROM files ORDER BY upload_date DESC")
             files = [dict(row) for row in cursor.fetchall()]
             return files
         finally:
@@ -68,11 +74,10 @@ def get_file_by_id(file_id: str):
         conn = get_db_connection()
         try:
             cursor = conn.cursor()
-            # 使用复合 ID 进行查询
-            cursor.execute("SELECT filename, filesize FROM files WHERE file_id = ?", (file_id,))
+            cursor.execute("SELECT filename, filesize, description FROM files WHERE file_id = ?", (file_id,))
             result = cursor.fetchone()
             if result:
-                return {"filename": result[0], "filesize": result[1]}
+                return {"filename": result[0], "filesize": result[1], "description": result[2] or ""}
             return None
         finally:
             conn.close()
@@ -114,5 +119,34 @@ def delete_file_by_message_id(message_id: int) -> str | None:
                 conn.commit()
                 print(f"已从数据库中删除与消息ID {message_id} 关联的文件: {file_id_to_delete}")
             return file_id_to_delete
+        finally:
+            conn.close()
+
+def update_file_description(file_id: str, description: str) -> bool:
+    """更新文件的描述。"""
+    with db_lock:
+        conn = get_db_connection()
+        try:
+            cursor = conn.cursor()
+            cursor.execute("UPDATE files SET description = ? WHERE file_id = ?", (description, file_id))
+            conn.commit()
+            return cursor.rowcount > 0
+        finally:
+            conn.close()
+
+def update_description_by_message_id(message_id: int, description: str) -> str | None:
+    """根据 message_id 更新描述，返回 file_id。"""
+    with db_lock:
+        conn = get_db_connection()
+        try:
+            cursor = conn.cursor()
+            cursor.execute("SELECT file_id FROM files WHERE file_id LIKE ?", (f"{message_id}:%",))
+            result = cursor.fetchone()
+            if result:
+                file_id = result[0]
+                cursor.execute("UPDATE files SET description = ? WHERE file_id = ?", (description, file_id))
+                conn.commit()
+                return file_id
+            return None
         finally:
             conn.close()

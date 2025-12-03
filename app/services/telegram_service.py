@@ -43,7 +43,7 @@ class TelegramService:
             print(f"上传分块 {chunk_name} 到 Telegram 时出错: {e}")
         return None
 
-    async def _upload_as_chunks(self, file_path: str, original_filename: str) -> str | None:
+    async def _upload_as_chunks(self, file_path: str, original_filename: str, description: str = "") -> str | None:
         """
         将大文件分割成块，并通过回复链将所有部分聚合起来。
         """
@@ -106,8 +106,9 @@ class TelegramService:
                 composite_id = f"{message.message_id}:{message.document.file_id}"
                 database.add_file_metadata(
                     filename=original_filename,
-                    file_id=composite_id, # 我们存储复合ID
-                    filesize=total_size
+                    file_id=composite_id,
+                    filesize=total_size,
+                    description=description
                 )
                 return composite_id # 返回复合ID
         except Exception as e:
@@ -115,14 +116,15 @@ class TelegramService:
         
         return None
 
-    async def upload_file(self, file_path: str, file_name: str) -> str | None:
+    async def upload_file(self, file_path: str, file_name: str, description: str = "") -> str | None:
         """
         将文件上传到指定的 Telegram 频道。
         如果文件大于 200MB，则分块上传。
-        
+
         参数:
             file_path: 文件的本地路径。
             file_name: 文件名。
+            description: 文件描述（可选），会作为 Telegram 消息的 caption。
 
         返回:
             如果成功，则返回文件的 file_id，否则返回 None。
@@ -130,7 +132,7 @@ class TelegramService:
         if not self.channel_name:
             print("错误：环境变量中未设置 CHANNEL_NAME。")
             return None
-        
+
         try:
             file_size = os.path.getsize(file_path)
         except OSError as e:
@@ -139,15 +141,16 @@ class TelegramService:
 
         if file_size >= CHUNK_SIZE_BYTES:
             print(f"文件大小 ({file_size / 1024 / 1024:.2f} MB) 超过或等于 {CHUNK_SIZE_BYTES / 1024 / 1024:.2f}MB。正在启动分块上传...")
-            return await self._upload_as_chunks(file_path, file_name)
-        
+            return await self._upload_as_chunks(file_path, file_name, description)
+
         print(f"文件大小 ({file_size / 1024 / 1024:.2f} MB) 小于 {CHUNK_SIZE_BYTES / 1024 / 1024:.2f}MB。正在直接上传...")
         try:
             with open(file_path, 'rb') as document_file:
                 message = await self.bot.send_document(
                     chat_id=self.channel_name,
                     document=document_file,
-                    filename=file_name
+                    filename=file_name,
+                    caption=description or None
                 )
             if message.document:
                 # 将小文件的元数据存入数据库
@@ -155,13 +158,14 @@ class TelegramService:
                 composite_id = f"{message.message_id}:{message.document.file_id}"
                 database.add_file_metadata(
                     filename=file_name,
-                    file_id=composite_id, # 存储复合ID
-                    filesize=file_size
+                    file_id=composite_id,
+                    filesize=file_size,
+                    description=description
                 )
                 return composite_id # 返回复合ID
         except Exception as e:
             print(f"上传文件到 Telegram 时出错: {e}")
-        
+
         return None
 
     async def get_download_url(self, file_id: str) -> str | None:
@@ -299,6 +303,18 @@ class TelegramService:
 
         return results
 
+    async def edit_message_caption(self, message_id: int, caption: str) -> bool:
+        """编辑消息的 caption。"""
+        try:
+            await self.bot.edit_message_caption(
+                chat_id=self.channel_name,
+                message_id=message_id,
+                caption=caption or None
+            )
+            return True
+        except Exception as e:
+            print(f"编辑消息 {message_id} 的 caption 时出错: {e}")
+            return False
 
     async def list_files_in_channel(self) -> list[dict]:
         """

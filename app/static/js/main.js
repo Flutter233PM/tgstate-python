@@ -12,84 +12,84 @@ const uploadQueue = [];
 let isUploading = false;
 
 function addToQueue(files) {
-    for (const file of files) {
-        uploadQueue.push(file);
-    }
-    processQueue();
+  for (const file of files) {
+    uploadQueue.push(file);
+  }
+  processQueue();
 }
 
 function processQueue() {
-    if (isUploading || uploadQueue.length === 0) {
-        return;
-    }
-    isUploading = true;
-    const fileToUpload = uploadQueue.shift();
-    uploadFile(fileToUpload).then(() => {
-        isUploading = false;
-        processQueue();
-    });
+  if (isUploading || uploadQueue.length === 0) {
+    return;
+  }
+  isUploading = true;
+  const fileToUpload = uploadQueue.shift();
+  uploadFile(fileToUpload).then(() => {
+    isUploading = false;
+    processQueue();
+  });
 }
 
 fileInput.addEventListener('change', ({ target }) => {
-    const files = target.files;
-    if (files.length > 0) {
-        progressArea.innerHTML = '';
-        uploadedArea.innerHTML = '';
-        addToQueue(files);
-    }
+  const files = target.files;
+  if (files.length > 0) {
+    progressArea.innerHTML = '';
+    uploadedArea.innerHTML = '';
+    addToQueue(files);
+  }
 });
 
-uploadArea.addEventListener('dragover', (event) => {
-    event.preventDefault();
-    uploadArea.classList.add('active');
+uploadArea.addEventListener('dragover', event => {
+  event.preventDefault();
+  uploadArea.classList.add('active');
 });
 
 uploadArea.addEventListener('dragleave', () => {
-    uploadArea.classList.remove('active');
+  uploadArea.classList.remove('active');
 });
 
-uploadArea.addEventListener('drop', (event) => {
-    event.preventDefault();
-    uploadArea.classList.remove('active');
-    const files = event.dataTransfer.files;
-    if (files.length > 0) {
-        progressArea.innerHTML = '';
-        uploadedArea.innerHTML = '';
-        addToQueue(files);
-    }
+uploadArea.addEventListener('drop', event => {
+  event.preventDefault();
+  uploadArea.classList.remove('active');
+  const files = event.dataTransfer.files;
+  if (files.length > 0) {
+    progressArea.innerHTML = '';
+    uploadedArea.innerHTML = '';
+    addToQueue(files);
+  }
 });
 
 // --- Main Upload Function ---
 function uploadFile(file) {
-    return new Promise((resolve) => {
-        const formData = new FormData();
-        formData.append('file', file, file.name);
-        
-        const xhr = new XMLHttpRequest();
-        xhr.open('POST', '/api/upload', true);
+  return new Promise(resolve => {
+    const formData = new FormData();
+    formData.append('file', file, file.name);
 
-        const fileId = `file-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', '/api/upload', true);
 
-        xhr.upload.onprogress = ({ loaded, total }) => {
-            updateProgressBar(file.name, loaded, total, fileId);
-        };
+    const fileId = `file-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
 
-        xhr.onload = () => {
-            handleUploadCompletion(xhr, file.name, fileId);
-            resolve(); // Resolve the promise when upload is complete (success or fail)
-        };
+    xhr.upload.onprogress = ({ loaded, total }) => {
+      updateProgressBar(file.name, loaded, total, fileId);
+    };
 
-        xhr.onerror = () => {
-            // Also handle network errors
-            handleUploadCompletion(xhr, file.name, fileId);
-            resolve();
-        };
-        
-        const initialProgressHTML = `<div class="row" id="progress-${fileId}"></div>`;
-        progressArea.insertAdjacentHTML('beforeend', initialProgressHTML);
+    xhr.onload = () => {
+      handleUploadCompletion(xhr, file.name, fileId);
+      resolve(); // Resolve the promise when upload is complete (success or fail)
+    };
 
-        xhr.send(formData);
-    });
+    xhr.onerror = () => {
+      // Also handle network errors
+      handleUploadCompletion(xhr, file.name, fileId);
+      resolve();
+    };
+
+    const initialProgressHTML = `<div class="row" id="progress-${fileId}"></div>`;
+    progressArea.insertAdjacentHTML('beforeend', initialProgressHTML);
+
+    xhr.send(formData);
+  });
 }
 
 // --- File List Logic ---
@@ -97,52 +97,52 @@ function uploadFile(file) {
 // We only need the delete functionality and to refresh the page on upload.
 
 function deleteFile(fileId) {
-    if (!confirm('Are you sure you want to delete this file? This action cannot be undone.')) {
-        return;
-    }
+  if (!confirm('Are you sure you want to delete this file? This action cannot be undone.')) {
+    return;
+  }
 
-    fetch(`/api/files/${fileId}`, {
-        method: 'DELETE',
-    })
+  fetch(`/api/files/${fileId}`, {
+    method: 'DELETE',
+  })
     .then(response => {
-        if (!response.ok) {
-            // 如果响应状态码不是 2xx，则先解析错误信息
-            return response.json().then(err => Promise.reject(err));
-        }
-        return response.json(); // 否则正常解析成功响应
+      if (!response.ok) {
+        // 如果响应状态码不是 2xx，则先解析错误信息
+        return response.json().then(err => Promise.reject(err));
+      }
+      return response.json(); // 否则正常解析成功响应
     })
     .then(data => {
-        if (data.status === 'ok') {
-            showToast(data.message || `File ${fileId} deleted successfully.`);
-            const fileItem = document.getElementById(`file-item-${fileId.replace(':', '-')}`);
-            if (fileItem) {
-                fileItem.remove();
-            }
-        } else {
-            // 这种情况理论上不应该发生，因为错误已在 .catch 中处理
-            showToast(`An unexpected issue occurred: ${data.message}`, 'error');
+      if (data.status === 'ok') {
+        showToast(data.message || `File ${fileId} deleted successfully.`);
+        const fileItem = document.getElementById(`file-item-${fileId.replace(':', '-')}`);
+        if (fileItem) {
+          fileItem.remove();
         }
+      } else {
+        // 这种情况理论上不应该发生，因为错误已在 .catch 中处理
+        showToast(`An unexpected issue occurred: ${data.message}`, 'error');
+      }
     })
     .catch(error => {
-        console.error('Error:', error);
-        // 从 error 对象中提取更详细的错误信息
-        const errorMessage = error.detail?.message || error.message || 'An error occurred while deleting the file.';
-        showToast(errorMessage, 'error');
+      console.error('Error:', error);
+      // 从 error 对象中提取更详细的错误信息
+      const errorMessage = error.detail?.message || error.message || 'An error occurred while deleting the file.';
+      showToast(errorMessage, 'error');
     });
 }
 
 // 在上传成功后也刷新文件列表
 function handleUploadCompletion(xhr, originalFileName, fileId) {
-    const progressRow = document.getElementById(`progress-${fileId}`);
-    if (progressRow) {
-        progressRow.remove(); // Remove the progress bar for this file
-    }
+  const progressRow = document.getElementById(`progress-${fileId}`);
+  if (progressRow) {
+    progressRow.remove(); // Remove the progress bar for this file
+  }
 
-    let uploadedHTML;
-    if (xhr.status === 200) {
-        const response = JSON.parse(xhr.responseText);
-        const fileUrl = response.url;
-        uploadedHTML = `<div class="row" id="uploaded-${fileId}">
+  let uploadedHTML;
+  if (xhr.status === 200) {
+    const response = JSON.parse(xhr.responseText);
+    const fileUrl = response.url;
+    uploadedHTML = `<div class="row" id="uploaded-${fileId}">
                                 <div class="content">
                                     <i class="fas fa-check-circle success-icon"></i>
                                     <div class="details">
@@ -152,21 +152,21 @@ function handleUploadCompletion(xhr, originalFileName, fileId) {
                                 </div>
                                 <button class="copy-btn-small" onclick="event.stopPropagation(); copyLink('${fileUrl}');"><i class="fas fa-copy"></i></button>
                             </div>`;
-    } else {
-        const responseText = xhr.responseText || 'Unknown error';
-        let errorMessage = `Upload Failed`;
-        try {
-            const errorJson = JSON.parse(responseText);
-            if (errorJson.detail) {
-                errorMessage = errorJson.detail;
-            }
-        } catch (e) {
-            // Not a JSON response, use the raw text if it's not too long
-            if (responseText.length < 100) {
-                errorMessage = responseText;
-            }
-        }
-        uploadedHTML = `<div class="row error" id="uploaded-${fileId}">
+  } else {
+    const responseText = xhr.responseText || 'Unknown error';
+    let errorMessage = `Upload Failed`;
+    try {
+      const errorJson = JSON.parse(responseText);
+      if (errorJson.detail) {
+        errorMessage = errorJson.detail;
+      }
+    } catch (e) {
+      // Not a JSON response, use the raw text if it's not too long
+      if (responseText.length < 100) {
+        errorMessage = responseText;
+      }
+    }
+    uploadedHTML = `<div class="row error" id="uploaded-${fileId}">
                                 <div class="content">
                                     <i class="fas fa-times-circle error-icon"></i>
                                     <div class="details">
@@ -175,18 +175,17 @@ function handleUploadCompletion(xhr, originalFileName, fileId) {
                                     </div>
                                 </div>
                             </div>`;
-    }
-    uploadedArea.insertAdjacentHTML("beforeend", uploadedHTML);
+  }
+  uploadedArea.insertAdjacentHTML('beforeend', uploadedHTML);
 }
-
 
 // --- UI Helper Functions ---
 function updateProgressBar(fileName, loaded, total, fileId) {
-    const progressRow = document.getElementById(`progress-${fileId}`);
-    if (!progressRow) return;
+  const progressRow = document.getElementById(`progress-${fileId}`);
+  if (!progressRow) return;
 
-    let fileLoaded = Math.floor((loaded / total) * 100);
-    let progressHTML = `<div class="content">
+  let fileLoaded = Math.floor((loaded / total) * 100);
+  let progressHTML = `<div class="content">
                             <i class="fas fa-file-alt file-icon"></i>
                             <div class="details">
                                 <span class="name">${fileName}</span>
@@ -196,353 +195,422 @@ function updateProgressBar(fileName, loaded, total, fileId) {
                                 <span class="percent">${fileLoaded}%</span>
                             </div>
                         </div>`;
-    progressRow.innerHTML = progressHTML;
+  progressRow.innerHTML = progressHTML;
 }
 
 // --- Image Gallery Modal and Actions ---
-const modal = document.getElementById("image-modal");
-const modalImg = document.getElementById("modal-image");
-const captionText = document.getElementById("modal-caption");
+const modal = document.getElementById('image-modal');
+const modalImg = document.getElementById('modal-image');
+const captionText = document.getElementById('modal-caption');
 
 function showImageModal(src, alt) {
-    if (modal && modalImg && captionText) {
-        modal.style.display = "block";
-        modalImg.src = src;
-        captionText.innerHTML = alt;
-    }
+  if (modal && modalImg && captionText) {
+    modal.style.display = 'block';
+    modalImg.src = src;
+    captionText.innerHTML = alt;
+  }
 }
 
 function closeImageModal() {
-    if (modal) {
-        modal.style.display = "none";
-    }
+  if (modal) {
+    modal.style.display = 'none';
+  }
 }
 
 // Close modal when clicking outside the image
-window.onclick = function(event) {
-    if (event.target == modal) {
-        closeImageModal();
-    }
-}
+window.onclick = function (event) {
+  if (event.target == modal) {
+    closeImageModal();
+  }
+};
 
-document.addEventListener('DOMContentLoaded', () => {
-    // Individual copy button in the list
-    const imageListBody = document.querySelector('.image-list-body');
-    if (imageListBody) {
-        imageListBody.addEventListener('click', function(event) {
-            const copyBtn = event.target.closest('.copy-btn');
-            if (copyBtn) {
-                event.stopPropagation();
-                const urlToCopy = copyBtn.dataset.url;
-                navigator.clipboard.writeText(urlToCopy).then(() => {
-                    showToast('URL copied!');
-                    const icon = copyBtn.querySelector('i');
-                    icon.classList.remove('fa-copy');
-                    icon.classList.add('fa-check');
-                    setTimeout(() => {
-                        icon.classList.remove('fa-check');
-                        icon.classList.add('fa-copy');
-                    }, 2000);
-                }).catch(err => {
-                    console.error('Failed to copy: ', err);
-                    showToast('Failed to copy URL.', 'error');
-                });
-            }
-        });
-    }
-});
+// document.addEventListener("DOMContentLoaded", () => {
+//   // Individual copy button in the list
+//   const imageListBody = document.querySelector(".image-list-body");
+//   if (imageListBody) {
+//     imageListBody.addEventListener("click", function (event) {
+//       const copyBtn = event.target.closest(".copy-btn");
+//       if (copyBtn) {
+//         event.stopPropagation();
+//         const urlToCopy = copyBtn.dataset.url;
+//         navigator.clipboard
+//           .writeText(urlToCopy)
+//           .then(() => {
+//             showToast("URL copied!");
+//             const icon = copyBtn.querySelector("i");
+//             icon.classList.remove("fa-copy");
+//             icon.classList.add("fa-check");
+//             setTimeout(() => {
+//               icon.classList.remove("fa-check");
+//               icon.classList.add("fa-copy");
+//             }, 2000);
+//           })
+//           .catch((err) => {
+//             console.error("Failed to copy: ", err);
+//             showToast("Failed to copy URL.", "error");
+//           });
+//       }
+//     });
+//   }
+// });
 
 function copyLink(filePath) {
-    const fullUrl = `${window.location.origin}${filePath}`;
-    navigator.clipboard.writeText(fullUrl).then(() => {
-        // Optional: Show a notification to the user
-        showToast('Link copied to clipboard!');
-    }).catch(err => {
-        console.error('Failed to copy link: ', err);
-        showToast('Failed to copy link.', 'error');
+  const fullUrl = `${window.location.origin}${filePath}`;
+  navigator.clipboard
+    .writeText(fullUrl)
+    .then(() => {
+      showToast('Link copied to clipboard!');
+    })
+    .catch(err => {
+      console.error('Failed to copy link: ', err);
+      showToast('Failed to copy link.', 'error');
+    });
+}
+
+// --- Edit Description ---
+function editDescription(fileId) {
+  const fileItem = document.getElementById(`file-item-${fileId.replace(':', '-')}`);
+  if (!fileItem) return;
+
+  const currentDesc = fileItem.dataset.description || '';
+  const newDesc = prompt('Edit Description:', currentDesc);
+
+  if (newDesc === null) return; // User cancelled
+
+  fetch(`/api/files/${fileId}/description`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ description: newDesc }),
+  })
+    .then(response => {
+      if (!response.ok) {
+        return response.json().then(err => Promise.reject(err));
+      }
+      return response.json();
+    })
+    .then(data => {
+      showToast('Description updated!');
+      // Update UI
+      fileItem.dataset.description = newDesc;
+      const descEl = fileItem.querySelector('.file-desc');
+      if (descEl) {
+        descEl.textContent = newDesc;
+        descEl.title = newDesc;
+      }
+    })
+    .catch(error => {
+      console.error('Error:', error);
+      showToast(error.detail || 'Failed to update description.', 'error');
     });
 }
 
 // A simple toast notification function
 function showToast(message, type = 'success') {
-    const toast = document.createElement('div');
-    toast.className = `toast ${type}`;
-    toast.textContent = message;
-    document.body.appendChild(toast);
+  const toast = document.createElement('div');
+  toast.className = `toast ${type}`;
+  toast.textContent = message;
+  document.body.appendChild(toast);
+  setTimeout(() => {
+    toast.classList.add('show');
+  }, 100);
+  setTimeout(() => {
+    toast.classList.remove('show');
     setTimeout(() => {
-        toast.classList.add('show');
-    }, 100);
-    setTimeout(() => {
-        toast.classList.remove('show');
-        setTimeout(() => {
-            document.body.removeChild(toast);
-        }, 500);
-    }, 3000);
+      document.body.removeChild(toast);
+    }, 500);
+  }, 3000);
 }
-
 
 // --- Batch Operations & Unified File/Image List Logic ---
 document.addEventListener('DOMContentLoaded', () => {
-    const selectAllCheckbox = document.getElementById('select-all-checkbox');
-    const fileCheckboxes = document.querySelectorAll('.file-checkbox');
-    const batchDeleteBtn = document.getElementById('batch-delete-btn');
-    const copyLinksBtn = document.getElementById('copy-links-btn');
-    const listItems = document.querySelectorAll('.image-list-item, .file-item-disk'); // Unified selector
-    const selectionCounter = document.getElementById('selection-counter');
-    const formatOptionsContainer = document.querySelector('.link-format-selector');
-    const formatOptions = document.querySelectorAll('.format-option');
+  const selectAllCheckbox = document.getElementById('select-all-checkbox');
+  const fileCheckboxes = document.querySelectorAll('.file-checkbox');
+  const batchDeleteBtn = document.getElementById('batch-delete-btn');
+  const copyLinksBtn = document.getElementById('copy-links-btn');
+  const listItems = document.querySelectorAll('.image-list-item, .file-item-disk'); // Unified selector
+  const selectionCounter = document.getElementById('selection-counter');
+  const formatOptionsContainer = document.querySelector('.link-format-selector');
+  const formatOptions = document.querySelectorAll('.format-option');
 
-    // Exit if there's no select-all checkbox on the page.
-    if (!selectAllCheckbox) return;
+  // Exit if there's no select-all checkbox on the page.
+  if (!selectAllCheckbox) return;
 
-    function updateBatchControls() {
-        const selectedCheckboxes = document.querySelectorAll('.file-checkbox:checked');
-        const selectedCount = selectedCheckboxes.length;
-        const hasSelection = selectedCount > 0;
+  function updateBatchControls() {
+    const selectedCheckboxes = document.querySelectorAll('.file-checkbox:checked');
+    const selectedCount = selectedCheckboxes.length;
+    const hasSelection = selectedCount > 0;
 
-        if (batchDeleteBtn) batchDeleteBtn.disabled = !hasSelection;
-        if (copyLinksBtn) copyLinksBtn.disabled = !hasSelection;
+    if (batchDeleteBtn) batchDeleteBtn.disabled = !hasSelection;
+    if (copyLinksBtn) copyLinksBtn.disabled = !hasSelection;
 
-        if (selectionCounter) {
-            if (hasSelection) {
-                selectionCounter.textContent = `${selectedCount} item(s) selected`;
-            } else {
-                selectionCounter.textContent = '';
-            }
-        }
-
-        selectAllCheckbox.checked = selectedCount > 0 && selectedCount === fileCheckboxes.length;
-
-        listItems.forEach(item => {
-            const checkbox = item.querySelector('.file-checkbox');
-            if (checkbox && checkbox.checked) {
-                item.classList.add('selected');
-            } else {
-                item.classList.remove('selected');
-            }
-        });
+    if (selectionCounter) {
+      if (hasSelection) {
+        selectionCounter.textContent = `${selectedCount} item(s) selected`;
+      } else {
+        selectionCounter.textContent = '';
+      }
     }
 
-    selectAllCheckbox.addEventListener('change', (event) => {
-        fileCheckboxes.forEach(checkbox => {
-            checkbox.checked = event.target.checked;
-        });
-        updateBatchControls();
-    });
+    selectAllCheckbox.checked = selectedCount > 0 && selectedCount === fileCheckboxes.length;
 
+    listItems.forEach(item => {
+      const checkbox = item.querySelector('.file-checkbox');
+      if (checkbox && checkbox.checked) {
+        item.classList.add('selected');
+      } else {
+        item.classList.remove('selected');
+      }
+    });
+  }
+
+  selectAllCheckbox.addEventListener('change', event => {
     fileCheckboxes.forEach(checkbox => {
-        checkbox.addEventListener('change', updateBatchControls);
+      checkbox.checked = event.target.checked;
     });
+    updateBatchControls();
+  });
 
-    if (batchDeleteBtn) {
-        batchDeleteBtn.addEventListener('click', () => {
-            const selectedFiles = document.querySelectorAll('.file-checkbox:checked');
-            if (selectedFiles.length === 0) {
-                showToast('Please select files to delete.', 'error');
-                return;
-            }
+  fileCheckboxes.forEach(checkbox => {
+    checkbox.addEventListener('change', updateBatchControls);
+  });
 
-            if (!confirm(`Are you sure you want to delete ${selectedFiles.length} selected file(s)? This action cannot be undone.`)) {
-                return;
-            }
+  if (batchDeleteBtn) {
+    batchDeleteBtn.addEventListener('click', () => {
+      const selectedFiles = document.querySelectorAll('.file-checkbox:checked');
+      if (selectedFiles.length === 0) {
+        showToast('Please select files to delete.', 'error');
+        return;
+      }
 
-            const fileIds = Array.from(selectedFiles).map(cb => cb.dataset.fileId);
+      if (!confirm(`Are you sure you want to delete ${selectedFiles.length} selected file(s)? This action cannot be undone.`)) {
+        return;
+      }
 
-            fetch('/api/batch_delete', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ file_ids: fileIds }),
-            })
-            .then(response => {
-                if (!response.ok) {
-                    return response.json().then(err => Promise.reject(err));
-                }
-                return response.json();
-            })
-            .then(data => {
-                let successCount = 0;
-                let failedCount = 0;
+      const fileIds = Array.from(selectedFiles).map(cb => cb.dataset.fileId);
 
-                if (data.deleted && data.deleted.length > 0) {
-                    successCount = data.deleted.length;
-                    // 从成功的响应中提取 file_id
-                    data.deleted.forEach(res => {
-                        // 假设成功的响应体中包含 file_id
-                        const fileId = res.details?.file_id || (typeof res === 'string' ? res : null);
-                        if (fileId) {
-                            const fileItem = document.getElementById(`file-item-${fileId.replace(':', '-')}`);
-                            if (fileItem) fileItem.remove();
-                        }
-                    });
-                }
+      fetch('/api/batch_delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ file_ids: fileIds }),
+      })
+        .then(response => {
+          if (!response.ok) {
+            return response.json().then(err => Promise.reject(err));
+          }
+          return response.json();
+        })
+        .then(data => {
+          let successCount = 0;
+          let failedCount = 0;
 
-                if (data.failed && data.failed.length > 0) {
-                    failedCount = data.failed.length;
-                    const failedMessages = data.failed.map(f => f.message || `ID: ${f.details?.file_id}`).join('\n');
-                    showToast(`Failed to delete ${failedCount} file(s). See console for details.`, 'error');
-                    console.error("Failed deletions:", failedMessages);
-                }
-
-                if (successCount > 0) {
-                    showToast(`Successfully deleted ${successCount} file(s).`, 'success');
-                }
-                
-                if (failedCount === 0 && successCount === 0) {
-                    showToast('No files were deleted.', 'info');
-                }
-
-                // Update UI without reloading
-                updateBatchControls();
-            })
-            .catch(error => {
-                console.error('Error:', error);
-                showToast('An error occurred while deleting files.', 'error');
+          if (data.deleted && data.deleted.length > 0) {
+            successCount = data.deleted.length;
+            // 从成功的响应中提取 file_id
+            data.deleted.forEach(res => {
+              // 假设成功的响应体中包含 file_id
+              const fileId = res.details?.file_id || (typeof res === 'string' ? res : null);
+              if (fileId) {
+                const fileItem = document.getElementById(`file-item-${fileId.replace(':', '-')}`);
+                if (fileItem) fileItem.remove();
+              }
             });
+          }
+
+          if (data.failed && data.failed.length > 0) {
+            failedCount = data.failed.length;
+            const failedMessages = data.failed.map(f => f.message || `ID: ${f.details?.file_id}`).join('\n');
+            showToast(`Failed to delete ${failedCount} file(s). See console for details.`, 'error');
+            console.error('Failed deletions:', failedMessages);
+          }
+
+          if (successCount > 0) {
+            showToast(`Successfully deleted ${successCount} file(s).`, 'success');
+          }
+
+          if (failedCount === 0 && successCount === 0) {
+            showToast('No files were deleted.', 'info');
+          }
+
+          // Update UI without reloading
+          updateBatchControls();
+        })
+        .catch(error => {
+          console.error('Error:', error);
+          showToast('An error occurred while deleting files.', 'error');
         });
-    }
+    });
+  }
 
-    if (formatOptions.length > 0) {
-        formatOptions.forEach(option => {
-            option.addEventListener('click', () => {
-                formatOptions.forEach(opt => opt.classList.remove('active'));
-                option.classList.add('active');
-            });
+  if (formatOptions.length > 0) {
+    formatOptions.forEach(option => {
+      option.addEventListener('click', () => {
+        formatOptions.forEach(opt => opt.classList.remove('active'));
+        option.classList.add('active');
+      });
+    });
+  }
+
+  if (copyLinksBtn) {
+    copyLinksBtn.addEventListener('click', () => {
+      const selectedFiles = document.querySelectorAll('.file-checkbox:checked');
+      if (selectedFiles.length === 0) {
+        showToast('Please select files to copy links.', 'error');
+        return;
+      }
+
+      // Default to 'url' format if format options are not present (e.g., on index.html)
+      const activeFormatOption = document.querySelector('.format-option.active');
+      const activeFormat = activeFormatOption ? activeFormatOption.dataset.format : 'url';
+
+      const links = Array.from(selectedFiles).map(cb => {
+        const listItem = cb.closest('.image-list-item, .file-item-disk');
+        const fileId = cb.dataset.fileId;
+        const fileUrl = `${window.location.origin}/preview/${fileId}`;
+        const fileName = listItem.dataset.filename;
+
+        // Only apply special formats if the options are visible (on image_hosting page)
+        if (formatOptionsContainer) {
+          switch (activeFormat) {
+            case 'markdown':
+              return `![${fileName}](${fileUrl})`;
+            case 'html':
+              return `<img src="${fileUrl}" alt="${fileName}">`;
+            case 'ubb':
+              return `[img]${fileUrl}[/img]`;
+            case 'url':
+            default:
+              return fileUrl;
+          }
+        }
+        // For index.html, always return the direct URL
+        return fileUrl;
+      });
+
+      navigator.clipboard
+        .writeText(links.join('\n'))
+        .then(() => {
+          const formatText = formatOptionsContainer ? ` in ${activeFormat.toUpperCase()} format` : '';
+          showToast(`${links.length} link(s) copied${formatText}!`, 'success');
+        })
+        .catch(err => {
+          console.error('Failed to copy links: ', err);
+          showToast('Failed to copy links.', 'error');
         });
-    }
+    });
+  }
 
-    if (copyLinksBtn) {
-        copyLinksBtn.addEventListener('click', () => {
-            const selectedFiles = document.querySelectorAll('.file-checkbox:checked');
-            if (selectedFiles.length === 0) {
-                showToast('Please select files to copy links.', 'error');
-                return;
-            }
-
-            // Default to 'url' format if format options are not present (e.g., on index.html)
-            const activeFormatOption = document.querySelector('.format-option.active');
-            const activeFormat = activeFormatOption ? activeFormatOption.dataset.format : 'url';
-
-            const links = Array.from(selectedFiles).map(cb => {
-                const listItem = cb.closest('.image-list-item, .file-item-disk');
-                const fileUrl = `${window.location.origin}${listItem.dataset.fileUrl}`;
-                const fileName = listItem.dataset.filename;
-
-                // Only apply special formats if the options are visible (on image_hosting page)
-                if (formatOptionsContainer) {
-                    switch (activeFormat) {
-                        case 'markdown':
-                            return `![${fileName}](${fileUrl})`;
-                        case 'html':
-                            return `<img src="${fileUrl}" alt="${fileName}">`;
-                        case 'ubb':
-                            return `[img]${fileUrl}[/img]`;
-                        case 'url':
-                        default:
-                            return fileUrl;
-                    }
-                }
-                // For index.html, always return the direct URL
-                return fileUrl;
-            });
-
-            navigator.clipboard.writeText(links.join('\n')).then(() => {
-                const formatText = formatOptionsContainer ? ` in ${activeFormat.toUpperCase()} format` : '';
-                showToast(`${links.length} link(s) copied${formatText}!`, 'success');
-            }).catch(err => {
-                console.error('Failed to copy links: ', err);
-                showToast('Failed to copy links.', 'error');
-            });
-        });
-    }
-
-    updateBatchControls(); // Initial check
+  updateBatchControls(); // Initial check
 });
-
 
 // --- Real-time file updates using Server-Sent Events (SSE) ---
 document.addEventListener('DOMContentLoaded', () => {
-    // Only run this logic if we are on a page with a file list
-    const fileListDisk = document.getElementById('file-list-disk');
-    if (!fileListDisk) {
-        return;
-    }
+  // Only run this logic if we are on a page with a file list
+  const fileListDisk = document.getElementById('file-list-disk');
+  if (!fileListDisk) {
+    return;
+  }
 
-    function connectSSE() {
-        const eventSource = new EventSource('/api/file-updates');
+  function connectSSE() {
+    const eventSource = new EventSource('/api/file-updates');
 
-        eventSource.onmessage = function(event) {
-            const file = JSON.parse(event.data);
-            addNewFileRow(file);
-        };
-
-        eventSource.onerror = function(err) {
-            console.error("EventSource failed, will retry in 5 seconds:", err);
-            eventSource.close();
-            setTimeout(connectSSE, 5000); 
-        };
-
-        console.log("SSE connection established for file updates.");
-    }
-
-    function addNewFileRow(file) {
-        const fileListDisk = document.getElementById('file-list-disk');
-        const emptyListMessage = fileListDisk.querySelector('.empty-list');
-        
-        // If the "empty" message is present, remove it first
-        if (emptyListMessage) {
-            emptyListMessage.remove();
+    eventSource.onmessage = function (event) {
+      const data = JSON.parse(event.data);
+      if (data.action === 'delete') {
+        // 处理删除事件
+        const fileItem = document.getElementById(`file-item-${data.file_id.replace(':', '-')}`);
+        if (fileItem) {
+          fileItem.remove();
+          showToast('File deleted from Telegram', 'info');
         }
+      } else if (data.action === 'update_description') {
+        // 处理描述更新事件
+        const fileItem = document.getElementById(`file-item-${data.file_id.replace(':', '-')}`);
+        if (fileItem) {
+          fileItem.dataset.description = data.description;
+          const descEl = fileItem.querySelector('.file-desc');
+          if (descEl) {
+            descEl.textContent = data.description;
+            descEl.title = data.description;
+          }
+          showToast('Description updated from Telegram', 'info');
+        }
+      } else {
+        // 原有的新增文件逻辑
+        addNewFileRow(data);
+      }
+    };
 
-        const newRow = document.createElement('div');
-        newRow.className = 'file-item-disk new-file-fade-in'; // Add animation class
-        newRow.id = `file-item-${file.file_id.replace(':', '-')}`;
-        newRow.dataset.fileId = file.file_id;
-        newRow.dataset.fileUrl = `/d/${file.file_id}`;
-        newRow.dataset.filename = file.filename;
+    eventSource.onerror = function (err) {
+      console.error('EventSource failed, will retry in 5 seconds:', err);
+      eventSource.close();
+      setTimeout(connectSSE, 5000);
+    };
 
-        const formattedSize = formatFileSize(file.filesize);
-        // Format date to YYYY-MM-DD
-        const formattedDate = new Date(file.upload_date).toISOString().split('T')[0];
+    console.log('SSE connection established for file updates.');
+  }
 
-        newRow.innerHTML = `
-            <div class="file-info-checkbox">
-                <input type="checkbox" class="file-checkbox" data-file-id="${file.file_id}">
-            </div>
-            <div class="file-info-disk">
-                <i class="fas fa-file-alt file-icon"></i>
-                <span class="file-name" title="${file.filename}">${file.filename}</span>
-            </div>
-            <div class="file-size">${formattedSize}</div>
-            <div class="file-date">${formattedDate}</div>
-            <div class="file-actions-disk">
-                <a href="/d/${file.file_id}" class="action-btn download-btn" title="Download"><i class="fas fa-download"></i></a>
-                <button class="action-btn copy-link-btn" title="Copy Link" onclick="copyLink('/d/${file.file_id}')"><i class="fas fa-link"></i></button>
-                <button class="action-btn delete-btn" title="Delete" onclick="deleteFile('${file.file_id}')"><i class="fas fa-trash-alt"></i></button>
-            </div>
+  function addNewFileRow(file) {
+    const fileListDisk = document.getElementById('file-list-disk');
+    const emptyListMessage = fileListDisk.querySelector('.empty-list');
+
+    // If the "empty" message is present, remove it first
+    if (emptyListMessage) {
+      emptyListMessage.remove();
+    }
+
+    const newRow = document.createElement('div');
+    newRow.className = 'file-item-disk new-file-fade-in'; // Add animation class
+    newRow.id = `file-item-${file.file_id.replace(':', '-')}`;
+    newRow.dataset.fileId = file.file_id;
+    newRow.dataset.fileUrl = `/d/${file.file_id}`;
+    newRow.dataset.filename = file.filename;
+
+    const formattedSize = formatFileSize(file.filesize);
+    // Format date to YYYY-MM-DD
+    const formattedDate = new Date(file.upload_date).toISOString().split('T')[0];
+
+    newRow.dataset.description = file.description || '';
+    newRow.innerHTML = `
+        <div class="file-info-checkbox">
+            <input type="checkbox" class="file-checkbox" data-file-id="${file.file_id}">
+        </div>
+        <div class="file-info-disk">
+            <i class="fas fa-file-alt file-icon"></i>
+            <span class="file-name" title="${file.filename}">${file.filename}</span>
+        </div>
+        <div class="file-desc" title="${file.description || ''}">${file.description || ''}</div>
+        <div class="file-size">${formattedSize}</div>
+        <div class="file-date">${formattedDate}</div>
+        <div class="file-actions-disk">
+            <button class="action-btn edit-btn" title="Edit Description" onclick="editDescription('${file.file_id}')"><i class="fas fa-edit"></i></button>
+            <a href="/d/${file.file_id}/${encodeURIComponent(file.filename)}" class="action-btn download-btn" title="Download"><i class="fas fa-download"></i></a>
+            <button class="action-btn copy-link-btn" title="Copy Link" onclick="copyLink('/preview/${file.file_id}')"><i class="fas fa-link"></i></button>
+            <button class="action-btn delete-btn" title="Delete" onclick="deleteFile('${file.file_id}')"><i class="fas fa-trash-alt"></i></button>
+        </div>
         `;
 
-        fileListDisk.insertBefore(newRow, fileListDisk.firstChild);
-        
-        // We need to re-initialize event listeners for the new elements,
-        // but since the main logic already uses event delegation or runs on DOMContentLoaded,
-        // we might only need to update the checkbox logic.
-        // For simplicity, we can just re-run the batch control update.
-        if (window.updateBatchControls) {
-            window.updateBatchControls();
-        }
-    }
+    fileListDisk.insertBefore(newRow, fileListDisk.firstChild);
 
-    // Make sure formatFileSize is available
-    if (typeof formatFileSize === 'undefined') {
-        window.formatFileSize = function(bytes) {
-            if (bytes === 0) return '0 Bytes';
-            const k = 1024;
-            const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
-            const i = Math.floor(Math.log(bytes) / Math.log(k));
-            return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
-        }
+    // We need to re-initialize event listeners for the new elements,
+    // but since the main logic already uses event delegation or runs on DOMContentLoaded,
+    // we might only need to update the checkbox logic.
+    // For simplicity, we can just re-run the batch control update.
+    if (window.updateBatchControls) {
+      window.updateBatchControls();
     }
+  }
 
-    // Start listening for real-time updates
-    connectSSE();
+  // Make sure formatFileSize is available
+  if (typeof formatFileSize === 'undefined') {
+    window.formatFileSize = function (bytes) {
+      if (bytes === 0) return '0 Bytes';
+      const k = 1024;
+      const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
+      const i = Math.floor(Math.log(bytes) / Math.log(k));
+      return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+    };
+  }
+
+  // Start listening for real-time updates
+  connectSSE();
 });

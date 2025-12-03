@@ -1,6 +1,6 @@
 import os
 from functools import lru_cache
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import Optional
 
 class Settings(BaseSettings):
@@ -14,6 +14,19 @@ class Settings(BaseSettings):
     BASE_URL: str = "http://127.0.0.1:8000"
     MODE: str = "p" # p 代表公开模式, m 代表私有模式
     FILE_ROUTE: str = "/d/"
+    # Telethon 配置
+    API_ID: int
+    API_HASH: str
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore"
+    )
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore"
+    )
 
 
 @lru_cache()

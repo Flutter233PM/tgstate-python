@@ -11,6 +11,10 @@ from fastapi.responses import StreamingResponse, JSONResponse
 from ..core.config import Settings, get_settings, get_active_password
 from ..services.telegram_service import TelegramService, get_telegram_service
 from ..core.http_client import get_http_client # 导入共享客户端
+from ..events import file_update_queue
+from .. import database as db_module
+import json
+from datetime import datetime
 
 router = APIRouter()
 
@@ -19,6 +23,7 @@ async def upload_file(
     request: Request, # 引入 Request 对象以访问 cookie
     file: UploadFile = File(...),
     key: Optional[str] = Form(None), # 从表单中获取 key
+    description: Optional[str] = Form(None), # 文件描述
     settings: Settings = Depends(get_settings),
     telegram_service: TelegramService = Depends(get_telegram_service),
     x_api_key: Optional[str] = Header(None) # 从请求头中获取 x-api-key
@@ -91,7 +96,7 @@ async def upload_file(
             # 将上传的文件内容写入临时文件
             shutil.copyfileobj(file.file, temp_file)
 
-        file_id = await telegram_service.upload_file(temp_file_path, file.filename)
+        file_id = await telegram_service.upload_file(temp_file_path, file.filename, description or "")
     finally:
         # 确保临时文件在操作后被删除
         if temp_file_path and os.path.exists(temp_file_path):
@@ -99,32 +104,108 @@ async def upload_file(
 
     if file_id:
         encoded_filename = quote(file.filename)
-        file_path = f"/d/{file_id}/{encoded_filename}" # 关键变更：将文件名添加到URL中
+        file_path = f"/d/{file_id}/{encoded_filename}"
         full_url = f"{settings.BASE_URL.strip('/')}{file_path}"
+
+        # 通过 SSE 通知前端新文件
+        file_info = db_module.get_file_by_id(file_id)
+        if file_info:
+            sse_data = {
+                "action": "add",
+                "filename": file.filename,
+                "file_id": file_id,
+                "filesize": file_info["filesize"],
+                "description": description or "",
+                "upload_date": datetime.now().isoformat()
+            }
+            await file_update_queue.put(json.dumps(sse_data))
+
         return {"path": file_path, "url": str(full_url)}
     else:
         raise HTTPException(status_code=500, detail="文件上传失败。")
 
-@router.get("/d/{file_id}/{filename}")
-async def download_file(
-    file_id: str, # Note: This can be a composite ID "message_id:file_id"
-    filename: str, # 关键变更：从URL中获取原始文件名
+@router.get("/preview/{file_id}")
+async def preview_file(
+    file_id: str,
     telegram_service: TelegramService = Depends(get_telegram_service),
-    client: httpx.AsyncClient = Depends(get_http_client) # 注入共享客户端
+    client: httpx.AsyncClient = Depends(get_http_client)
 ):
     """
-    处理文件下载。
-    该函数实现了对清单文件和单个文件的真正流式处理，并确保文件名正确。
+    预览文件（inline显示，不下载）
     """
-    # 从复合ID中提取真实的 file_id，同时保持对旧格式的兼容性
     try:
         _, real_file_id = file_id.split(':', 1)
     except ValueError:
-        real_file_id = file_id # 假定是旧格式
+        real_file_id = file_id
+
+    # 从数据库获取文件名以确定 Content-Type
+    file_meta = db_module.get_file_by_id(file_id)
+    filename = file_meta["filename"] if file_meta else "file"
+
+    download_url = await telegram_service.get_download_url(real_file_id)
+    if not download_url:
+        raise HTTPException(status_code=404, detail="文件未找到")
+
+    # 检查是否是清单文件
+    range_headers = {"Range": "bytes=0-127"}
+    try:
+        head_resp = await client.get(download_url, headers=range_headers)
+        head_resp.raise_for_status()
+        first_bytes = head_resp.content
+    except httpx.RequestError as e:
+        raise HTTPException(status_code=503, detail=f"无法连接到 Telegram: {e}")
+
+    if first_bytes.startswith(b'tgstate-blob\n'):
+        # 清单文件不支持预览
+        raise HTTPException(status_code=400, detail="大文件不支持预览")
+
+    # 根据文件名获取 Content-Type
+    content_type, _ = mimetypes.guess_type(filename)
+    if content_type is None:
+        content_type = "application/octet-stream"
+
+    # 使用 inline 显示，添加浏览器缓存
+    response_headers = {
+        'Content-Disposition': 'inline',
+        'Content-Type': content_type,
+        'Cache-Control': 'public, max-age=31536000',  # 缓存1年
+    }
+
+    async def file_streamer():
+        async with client.stream("GET", download_url) as resp:
+            resp.raise_for_status()
+            async for chunk in resp.aiter_bytes():
+                yield chunk
+
+    return StreamingResponse(file_streamer(), headers=response_headers)
+
+
+@router.get("/d/{file_path:path}")
+async def download_file(
+    file_path: str,
+    telegram_service: TelegramService = Depends(get_telegram_service),
+    client: httpx.AsyncClient = Depends(get_http_client)
+):
+    """
+    处理文件下载。支持两种格式：
+    - /d/{file_id}/{filename} (新格式)
+    - /d/{file_id} (旧格式)
+    """
+    # 解析路径
+    parts = file_path.split('/', 1)
+    file_id = parts[0]
+    filename = parts[1] if len(parts) > 1 else "download"
+    
+    # 从复合ID中提取真实的 file_id
+    try:
+        _, real_file_id = file_id.split(':', 1)
+    except ValueError:
+        real_file_id = file_id
 
     download_url = await telegram_service.get_download_url(real_file_id)
     if not download_url:
         raise HTTPException(status_code=404, detail="文件未找到或下载链接已过期。")
+
 
     # 使用共享客户端进行范围请求，检查文件类型
     range_headers = {"Range": "bytes=0-127"}
@@ -157,22 +238,22 @@ async def download_file(
         # 关键变更：文件名现在直接从URL参数中获取，不再需要数据库查询。
 
         # 检查文件是否为图片
-        image_extensions = ('.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp')
-        is_image = filename.lower().endswith(image_extensions)
+        # image_extensions = ('.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp')
+        # is_image = filename.lower().endswith(image_extensions)
         
         filename_encoded = quote(str(filename))
-        
+
         # 动态获取 Content-Type
         content_type, _ = mimetypes.guess_type(filename)
         if content_type is None:
-            content_type = "application/octet-stream"  # 如果无法猜测，则使用默认值
+            content_type = "application/octet-stream"
 
-        # 根据是否为图片设置不同的 Content-Disposition
-        disposition_type = "inline" if is_image else "attachment"
+        # 始终使用 attachment 强制下载
         response_headers = {
-            'Content-Disposition': f"{disposition_type}; filename*=UTF-8''{filename_encoded}",
-            'Content-Type': content_type,  # 关键修复：添加 Content-Type 头
+            'Content-Disposition': f"attachment; filename*=UTF-8''{filename_encoded}",
+            'Content-Type': content_type,
         }
+
 
         async def single_file_streamer():
             # 使用共享客户端进行流式传输
@@ -183,8 +264,6 @@ async def download_file(
         
         return StreamingResponse(single_file_streamer(), headers=response_headers)
 
-from .. import database
-from ..events import file_update_queue
 import asyncio
 from sse_starlette.sse import EventSourceResponse
 
@@ -218,7 +297,7 @@ async def get_files_list():
     """
     从数据库获取文件列表。
     """
-    files = database.get_all_files()
+    files = db_module.get_all_files()
     return files
 
 @router.delete("/api/files/{file_id}")
@@ -238,7 +317,7 @@ async def delete_file(
 
     if delete_result.get("main_message_deleted") or is_not_found_error:
         # 如果 TG 确认删除，或者返回“未找到”，我们都清理数据库
-        was_deleted_from_db = database.delete_file_metadata(file_id)
+        was_deleted_from_db = db_module.delete_file_metadata(file_id)
         
         if is_not_found_error:
             print(f"文件 {file_id} 在 Telegram 中未找到，视为已删除。正在清理数据库...")
@@ -284,6 +363,9 @@ class PasswordRequest(BaseModel):
 class BatchDeleteRequest(BaseModel):
     file_ids: List[str]
 
+class DescriptionRequest(BaseModel):
+    description: str
+
 @router.post("/api/set-password")
 async def set_password(payload: PasswordRequest):
     """
@@ -328,6 +410,30 @@ async def batch_delete_files(
         "deleted": successful_deletions,
         "failed": failed_deletions
     }
+
+@router.put("/api/files/{file_id}/description")
+async def update_description(
+    file_id: str,
+    payload: DescriptionRequest,
+    telegram_service: TelegramService = Depends(get_telegram_service)
+):
+    """更新文件描述，同步到 Telegram caption。"""
+    # 解析 message_id
+    try:
+        message_id_str, _ = file_id.split(':', 1)
+        message_id = int(message_id_str)
+    except (ValueError, IndexError):
+        raise HTTPException(status_code=400, detail="无效的文件 ID 格式")
+
+    # 更新 Telegram caption
+    success = await telegram_service.edit_message_caption(message_id, payload.description)
+    if not success:
+        raise HTTPException(status_code=500, detail="更新 Telegram caption 失败")
+
+    # 更新数据库
+    db_module.update_file_description(file_id, payload.description)
+
+    return {"status": "ok", "message": "描述已更新"}
 
 
 async def stream_chunks(chunk_composite_ids, telegram_service: TelegramService, client: httpx.AsyncClient):

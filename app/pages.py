@@ -46,26 +46,42 @@ async def submit_password(password: str = Form(...)):
         return RedirectResponse(url="/pwd?error=1", status_code=303)
 
 @router.get("/image_hosting", response_class=HTMLResponse)
-async def image_hosting_page(request: Request):
+async def image_hosting_page(request: Request, page: int = 1):
     """
-    提供图床页面，并展示所有已上传的图片。
+    提供图床页面，并展示所有已上传的图片（分页）。
     权限验证已移至全局中间件。
     """
+    per_page = 20
     files = database.get_all_files()
     # 定义图片文件后缀
     image_extensions = ('.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp')
     # 为模板准备图片数据，包括下载链接，只筛选图片文件
-    images = [
+    all_images = [
         {
             "filename": file["filename"],
             "file_id": file["file_id"],
             "size": file["filesize"],
             "url": f"/d/{file['file_id']}",
-            "upload_date": file["upload_date"]
+            "upload_date": file["upload_date"],
+            "description": file.get("description", "")
         }
         for file in files if file["filename"].lower().endswith(image_extensions)
     ]
-    return templates.TemplateResponse("image_hosting.html", {"request": request, "images": images})
+
+    # 分页计算
+    total = len(all_images)
+    total_pages = max(1, (total + per_page - 1) // per_page)
+    page = max(1, min(page, total_pages))  # 确保页码有效
+    start = (page - 1) * per_page
+    images = all_images[start:start + per_page]
+
+    return templates.TemplateResponse("image_hosting.html", {
+        "request": request,
+        "images": images,
+        "page": page,
+        "total_pages": total_pages,
+        "total": total
+    })
 
 
 @router.get("/share/{file_id}", response_class=HTMLResponse)

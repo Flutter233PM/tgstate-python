@@ -2,6 +2,8 @@ from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
 from starlette.templating import Jinja2Templates
 from fastapi.responses import RedirectResponse
+from contextlib import asynccontextmanager
+import asyncio
 
 # 导入我们的新生命周期管理器和路由
 from .core.http_client import lifespan
@@ -16,6 +18,21 @@ app = FastAPI(
     description="一个基于 Telegram 的私有文件存储系统。",
     version="2.0.0"
 )
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # 启动时
+    from .services.telegram_listener import get_listener
+    listener = get_listener()
+    
+    # 在后台任务中运行监听器
+    listener_task = asyncio.create_task(listener.start())
+    
+    yield
+    
+    # 关闭时
+    await listener.stop()
+    listener_task.cancel()
 
 @app.middleware("http")
 async def auth_middleware(request: Request, call_next):
